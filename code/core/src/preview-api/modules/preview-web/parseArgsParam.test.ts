@@ -188,34 +188,41 @@ describe('parseArgsParam', () => {
   });
 
   describe('value sanitization', () => {
-    it("omits values that aren't in the extended alphanumeric set", () => {
+    it('omits values containing unsafe characters (structural delimiters, injection vectors)', () => {
+      // Blocked: colons (replaced with = by parser, then validated),
+      // backticks (template literal injection), angle brackets (HTML injection),
+      // double quotes (attribute injection)
+      expect(parseArgsParam('key:a:b')).toStrictEqual({});
       expect(parseArgsParam('key:a`b')).toStrictEqual({});
-      expect(parseArgsParam('key:a~b')).toStrictEqual({});
-      expect(parseArgsParam('key:a!b')).toStrictEqual({});
-      expect(parseArgsParam('key:a@b')).toStrictEqual({});
-      expect(parseArgsParam('key:a#b')).toStrictEqual({});
-      expect(parseArgsParam('key:a$b')).toStrictEqual({});
-      expect(parseArgsParam('key:a%b')).toStrictEqual({});
-      expect(parseArgsParam('key:a^b')).toStrictEqual({});
-      expect(parseArgsParam('key:a&b')).toStrictEqual({});
-      expect(parseArgsParam('key:a*b')).toStrictEqual({});
-      expect(parseArgsParam('key:a(b')).toStrictEqual({});
-      expect(parseArgsParam('key:a)b')).toStrictEqual({});
-      expect(parseArgsParam('key:a=b')).toStrictEqual({});
-      expect(parseArgsParam('key:a[b')).toStrictEqual({});
-      expect(parseArgsParam('key:a]b')).toStrictEqual({});
-      expect(parseArgsParam('key:a{b')).toStrictEqual({});
-      expect(parseArgsParam('key:a}b')).toStrictEqual({});
-      expect(parseArgsParam('key:a\\b')).toStrictEqual({});
-      expect(parseArgsParam('key:a|b')).toStrictEqual({});
-      expect(parseArgsParam("key:a'b")).toStrictEqual({});
-      expect(parseArgsParam('key:a"b')).toStrictEqual({});
-      expect(parseArgsParam('key:a,b')).toStrictEqual({});
-      expect(parseArgsParam('key:a.b')).toStrictEqual({});
       expect(parseArgsParam('key:a<b')).toStrictEqual({});
       expect(parseArgsParam('key:a>b')).toStrictEqual({});
-      expect(parseArgsParam('key:a/b')).toStrictEqual({});
-      expect(parseArgsParam('key:a?b')).toStrictEqual({});
+      expect(parseArgsParam('key:a"b')).toStrictEqual({});
+      // Note: semicolons are arg delimiters and split the string before validation
+    });
+
+    it('allows values with common special characters', () => {
+      // These characters are safe in values and commonly used in real text
+      expect(parseArgsParam('key:a/b')).toStrictEqual({ key: 'a/b' });
+      expect(parseArgsParam('key:a@b')).toStrictEqual({ key: 'a@b' });
+      expect(parseArgsParam('key:a#b')).toStrictEqual({ key: 'a#b' });
+      expect(parseArgsParam('key:a$b')).toStrictEqual({ key: 'a$b' });
+      expect(parseArgsParam('key:a%b')).toStrictEqual({ key: 'a%b' });
+      expect(parseArgsParam('key:a&b')).toStrictEqual({ key: 'a&b' });
+      expect(parseArgsParam('key:a*b')).toStrictEqual({ key: 'a*b' });
+      expect(parseArgsParam('key:a(b')).toStrictEqual({ key: 'a(b' });
+      // = is replaced with ~ by the arg parser before picoquery
+      expect(parseArgsParam('key:a=b')).toStrictEqual({ key: 'a~b' });
+      // ) is structural in picoquery (bracket close) but passes through for simple keys
+      expect(parseArgsParam('key:a)b')).toStrictEqual({ key: 'a)b' });
+      expect(parseArgsParam("key:a'b")).toStrictEqual({ key: "a'b" });
+      expect(parseArgsParam('key:a,b')).toStrictEqual({ key: 'a,b' });
+      expect(parseArgsParam('key:a?b')).toStrictEqual({ key: 'a?b' });
+      expect(parseArgsParam('key:a~b')).toStrictEqual({ key: 'a~b' });
+      expect(parseArgsParam('key:a!b')).toStrictEqual({ key: 'a!b' });
+      expect(parseArgsParam('key:a\\b')).toStrictEqual({ key: 'a\\b' });
+      expect(parseArgsParam('key:a|b')).toStrictEqual({ key: 'a|b' });
+      expect(parseArgsParam('key:a{b')).toStrictEqual({ key: 'a{b' });
+      expect(parseArgsParam('key:a}b')).toStrictEqual({ key: 'a}b' });
     });
 
     it('allows values that are in the extended alphanumeric set', () => {
@@ -236,17 +243,28 @@ describe('parseArgsParam', () => {
     });
 
     it('also applies to nested object and array values', () => {
-      expect(parseArgsParam('obj.key:a!b')).toStrictEqual({});
-      expect(parseArgsParam('arr[0]:a!b')).toStrictEqual({});
+      // `a!b` is now valid
+      expect(parseArgsParam('obj.key:a!b')).toStrictEqual({ obj: { key: 'a!b' } });
+      expect(parseArgsParam('arr[0]:a!b')).toStrictEqual({ arr: ['a!b'] });
+      // But backticks/angle brackets are still blocked in nested values
+      expect(parseArgsParam('obj.key:a`b')).toStrictEqual({});
+      expect(parseArgsParam('arr[0]:a<b')).toStrictEqual({});
     });
 
     it('completely omits an arg when a (deeply) nested value is invalid', () => {
-      expect(parseArgsParam('obj.key:a!b;obj.foo:val;obj.bar.baz:val')).toStrictEqual({});
-      expect(parseArgsParam('obj.arr[]:a!b;obj.foo:val;obj.bar.baz:val')).toStrictEqual({});
-      expect(parseArgsParam('obj.arr[0]:val;obj.arr[1]:a!b;obj.foo:val')).toStrictEqual({});
-      expect(parseArgsParam('arr[]:val;arr[]:a!b;key:val')).toStrictEqual({ key: 'val' });
-      expect(parseArgsParam('arr[0]:val;arr[1]:a!1;key:val')).toStrictEqual({ key: 'val' });
-      expect(parseArgsParam('arr[0]:val;arr[2]:a!1;key:val')).toStrictEqual({ key: 'val' });
+      // `a!b` is now valid, so these pass through
+      expect(parseArgsParam('obj.key:a!b;obj.foo:val;obj.bar.baz:val')).toStrictEqual({
+        obj: { key: 'a!b', foo: 'val', bar: { baz: 'val' } },
+      });
+      expect(parseArgsParam('obj.arr[]:a!b;obj.foo:val;obj.bar.baz:val')).toStrictEqual({
+        obj: { arr: ['a!b'], foo: 'val', bar: { baz: 'val' } },
+      });
+      expect(parseArgsParam('obj.arr[0]:val;obj.arr[1]:a!b;obj.foo:val')).toStrictEqual({
+        obj: { arr: ['val', 'a!b'], foo: 'val' },
+      });
+      // Now test with actually invalid values (backticks blocked)
+      expect(parseArgsParam('arr[]:val;arr[]:a`b;key:val')).toStrictEqual({ key: 'val' });
+      expect(parseArgsParam('arr[0]:val;arr[1]:a`b;key:val')).toStrictEqual({ key: 'val' });
     });
   });
 });

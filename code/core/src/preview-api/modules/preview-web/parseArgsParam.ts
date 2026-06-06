@@ -7,6 +7,9 @@ import { dedent } from 'ts-dedent';
 
 // Keep this in sync with validateArgs in router/src/utils.ts
 const VALIDATION_REGEXP = /^[a-zA-Z0-9 _-]*$/;
+// For string values: block characters that break URL arg encoding or enable injection.
+// Structural delimiters (;, :) are blocked because they are used as arg/separator in the URL format.
+const UNSAFE_VALUE_CHARS_REGEXP = /[;:`<>"\x00-\x1f\x7f]/;
 const NUMBER_REGEXP = /^-?[0-9]+(\.[0-9]+)?$/;
 const HEX_REGEXP = /^#([a-f0-9]{3,4}|[a-f0-9]{6}|[a-f0-9]{8})$/i;
 const COLOR_REGEXP =
@@ -22,24 +25,24 @@ const validateArgs = (key = '', value: unknown): boolean => {
 
   if (value === null || value === undefined) {
     return true;
-  } // encoded as `!null` or `!undefined` // encoded as `!null` or `!undefined`
+  } // encoded as `!null` or `!undefined`
 
-  // encoded as `!null` or `!undefined`
   if (value instanceof Date) {
     return true;
-  } // encoded as modified ISO string // encoded as modified ISO string
+  } // encoded as modified ISO string
 
-  // encoded as modified ISO string
   if (typeof value === 'number' || typeof value === 'boolean') {
     return true;
   }
   if (typeof value === 'string') {
-    return (
-      VALIDATION_REGEXP.test(value) ||
-      NUMBER_REGEXP.test(value) ||
-      HEX_REGEXP.test(value) ||
-      COLOR_REGEXP.test(value)
-    );
+    if (UNSAFE_VALUE_CHARS_REGEXP.test(value)) {
+      return false;
+    }
+    // Reject malformed numbers (e.g. "1.", ".2", "1.2.3")
+    if (/^[0-9.]+$/.test(value) && !NUMBER_REGEXP.test(value)) {
+      return false;
+    }
+    return true;
   }
 
   if (Array.isArray(value)) {
